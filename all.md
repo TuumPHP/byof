@@ -545,10 +545,80 @@ $app（不変）と$request（リクエストごとの変数）という分類�
 Controllerの概要
 ===============
 
+ControllerもHttpスタックとして考える。
+ただし、Controllerはリクエストの度に構築する。つまり厳密にはスタックの一部ではないけれど、同じインターフェースを持っている、とする。
+
+あとは、マイクロフレームワークを参考に、クロージャーでもOKとする。
+
+
+Controllerクラス
+---------------
+
+まずは、こう。
+
+```php
+class MyController implements RequestStackInterface {}
+```
+
+### forge
+
+DIコンテナを使わないという方針を建てた。ので、クラス名からオブジェクトを生成する方法を考えないといけない。
+
+DIコンテナを使うとした場合は、DIコンテナを使えばよいので、こちらもフックはしておくべきだろう。
+DIコンテナがない場合は、ファクトリメソッドを使うことを考える。
+
+```php
+abstract class AbstractController implements RequestStackInterface {
+    /**
+     * overwrite this method!
+     */
+    public static function forge() {
+        return new static();
+    }
+}
+```
+
+
+### Dispatching
+
+```php
+function dispatch( $request, $class )
+{
+    if( $class instanceof \Closure ) {
+        return $class( $request );
+    }
+    if( $dic = $app->dic() ) {
+        $controller = $dic->get( $class );
+    } else {
+        $controller = $class::forge();
+    }
+    return $controller->call( $request );
+}
+
+```
+
+さて、callの中でディスパッチできるようにする。
+
+```php
+function call( $request )
+{
+    $method = $request->getMethod();
+    $method = 'on' . ucwords($method)
+    return $this->$method( $request );
+}
+```
+
+という感じにしたい。が、一つ気に食わないことが。
+
+
+
+
 Routing
 --------
 
 FastRoute使ってみるかな。
+Aura.Routeもテストしたい。
+
 
 Dispatching
 -----------
