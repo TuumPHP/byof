@@ -4,204 +4,6 @@
 
 
 
-HTTPリクエストとリスポンス概要設計
-===============
-
-SymfonyのHttp-Foundationのリクエストとレスポンスを元に設計してみる。
-まずは簡単な、レスポンスの設計から。
-
-Response概念設計
---------------
-
-ここはLaravel4.2のレスポンスAPIを参考に設計してみる。自分が知っているFWであること、LaravelのAPIは使いやすいので、ぜひ参考にしたい。
-
-大きくレスポンスには、テンプレートを使ってHTMLを返すView、そして別URLに飛ばすRedirectの2種類について考える。
-
-### View.php
-
-最初はテンプレートView用レスポンス。
-テンプレートファイル名を設定する。レンダーリングはテンプレートエンジンに任せるので、レスポンスとしては一切関知しない。
-
-```php
-class View extends Symfony\Component\HttpFoundation\Response {
-    use ResponseWithTrait;
-    protected $file;
-    public function setFile( $file ) {
-        $this->file = $file;
-    }
-    public function getFile() {
-        return $this->file;
-    }
-}
-```
-
-### Redirect.php
-
-次はリダイレクト。
-
-```php
-class Redirect extends Symfony\Component\HttpFoundation\RedirectResponse {
-    use ResponseWithTrait;
-}
-```
-
-### ResponseWithTrait
-
-両方共ResponseWithTraitが使われています。
-withから始まるメソッドを実装してます。
-
-レスポンスオブジェクトにはデータを登録する必要があります。Viewならテンプレートエンジンに、Redirectならセッションにデータを渡して必要な処理を行ってもらいます。これを行うためのtraitを作ります。
-
-```php
-trait ResponseWithTrait {
-    protected $data;
-    public function with($key, $value ) {
-        $this->data[$key] = $value;
-    }
-    public function withMessage($value ) {
-        $this->data['message'] = $value;
-    }
-    public function withErrorMsg($value ) {
-        $this->data['error'] = $value;
-    }
-    public function withValidationMsg(array $value ) {
-        $this->data['errors'] = $value;
-    }
-    public function withInput(array $value ) {
-        $this->data['input'] = $value;
-    }
-    public function getData() {
-        return $this->data;
-    }
-}
-```
-
-こんなかんじかな。
-
-
-### Responderファクトリ
-
-他にもJsonを返したい、とかありますね。
-そして簡単なFactoryオブジェクトが欲しいです。
-
-```php
-class Responder {
-    public function view( $file ) {
-        $response = new View();
-        $response->setFile( $file );
-        return $response;
-    }
-    public function redirect( $url ) {
-        $response = new Redirect( $url );
-        return $response;
-    }
-    public function json(array $data ) { // 怪しい
-        return new Response( json_encode($data), Response::OK, [
-            'Content-Type' => 'text/json',
-        ] );
-    }
-}
-
-// 使い方
-$respond = new Responder();
-$respond->view('template.file.name'); // view
-$respond->redirect('http://www.example.com/test'); // redirect
-$respond->json($jsonData); // json
-```
-
-コードはサンプルですが。
-
-### Requestとの関連性
-
-しかし、現在のpathinfoからの相対パスで指定したいと思いませんか？
-すると、こんなメソッドが必要でしょう。
-
-```php
-class Responder {
-    public function to( $url ) {
-        $url  = $this->request->getUriForPath( $url );
-        $response = new Redirect( $url );
-        return $response;
-    }
-}
-```
-
-このコードで動くかどうかはテストしないといけませんが、_リクエストオブジェクトが必要_ になることが分かります。
-
-つまり、RedirectはRequestに依存することになります。
-確かにリクエストに対してレスポンスを返すことを考えると、依存性は理解できます。
-
-Request概念設計
---------------
-
-Request側にリクエストごとに変わる変数を寄せる。
-またレスポンスを返すのに必要なサービスを持つこととする。
-
-今のところ、必要なサービスはResponderのみです。ついでにセッションも設定してしまいましょう。
-
-```php
-use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
-use Symfony\Component\HttpFoundation\Session\Session;
-class Request extends SymfonyRequest {
-    public static function start( $storage = null ) {
-        $request = new Request( $_GET, $_POST, array(), $_COOKIE, $_FILES, $_SERVER );
-        $request->setSession( new Session( $storage ) );
-        return $request;
-    }
-}
-```
-
-
-### レスポンス生成
-
-先のレスポンダーを設定できるようにします。簡単に。
-
-```php
-class Request extends SymfonyRequest {
-    protected $respond;
-    public function setResponder($responder) {
-        $this->respond = $responder
-        $responder->setRequest($this);
-    }
-    public function respond() {
-        return $this->respond;
-    }
-}
-```
-
-どうやってResponderを注入するか…
-
-### setup method
-
-こんな方法で？
-
-```php
-class Request {
-    public function setup() {
-        $this->setRespond(new Responder($this));
-        return $this;
-    }
-}
-// このタイミングかな。
-$request  = Request::start()->setup();
-$response = $app->call($request)
-```
-
-他にRequestオブジェクトが必要なサービスは、この方法で作るか…
-
-サービスが散らばるなぁ。
-
-
-
-### コンテナが欲しい
-
-
-
-これだけで十分でしょうか？
-
-今後の設計で必要なことが増えてくると思います。
-
-
 アプリケーションの設計
 ================
 
@@ -238,6 +40,7 @@ app
   |    |- local/
   |    +- stage/
   |- views/
+  |- .env.php
   |- app.php
   +- boot.php
 ```
@@ -261,12 +64,11 @@ if(file_exists(__DIR__.'/.env.php')) {
     $environment = include(__DIR__.'/.env.php');
     $config->addRoot(__DIR__.'/config/'.$environment);
 }
-$app = App::start();
-$app->register('environment', $environment);
+$app = App::start($environment);
 $app->register('config',   $config);
-$app->register('template', $config->php('template'));
+$app->register('viewer',   $config->php('viewer'));
 $app->register('logger',   $config->php('logger'));
-$app->register('respond',  $config->php('responder'));
+$app->register('respond',  $config->php('respond'));
 
 $app->push($config->php('error_stack'));
 $app->push($config->php('session_stack'));
@@ -281,7 +83,7 @@ return $app;
 
 ```php
 $app = include(__DIR__.'/boot.php');
-$request  = Request::start();
+$request  = $app->config()->php('request');
 $response = $app->call($request);
 $response->render();
 ```
