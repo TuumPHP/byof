@@ -18,6 +18,7 @@ app/config/local
 ```
 root
   +- app/
+  |- docs/
   |- public/
   |- src/
   |- var/
@@ -25,6 +26,7 @@ root
 ```
 
 *   app: 設定ファイルなど。
+*   docs: html, css, テンプレートファイル。
 *   public: ウェブサイト用。
 *   src: サイト用のクラス
 *   var: 一時ファイル、ログ、キャッシュなど。コード管理外。
@@ -35,7 +37,6 @@ app
   +- config/
   |    |- local/
   |    +- stage/
-  |- views/
   |- .env.php
   |- app.php
   +- boot.php
@@ -43,7 +44,6 @@ app
 
 *   config: 設定用ディレクトリ。
 *   config/{local|stage}: 各環境での設定ファイル。
-*   views: テンプレートファイル。
 
 
 アプリ実行
@@ -218,6 +218,23 @@ Template Engine
 ### View_Handle
 
 
+
+Bundle, Package, 
+============
+
+一つのソースフォルダー以下に、コントローラー、ビュー、などが入っているもの。
+
+```
+bundle/
+ |- src
+ |   |- install.php
+ |   |- controller/controller.php
+ |   `- model/model.php
+ `- docs/index.php
+```
+
+appフォルダー外に存在しそう。srcとかvendorとか。
+すると、Locatorより外のファイル、になる。
 
 
 MVCで考えてみる
