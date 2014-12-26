@@ -125,6 +125,39 @@ ControllerもHttpスタックとして考える。
 あとは、マイクロフレームワークを参考に、クロージャーでもOKとする。
 
 
+/**
+ * Class Dispatcher
+ *
+ * dispatching procedure
+ * 
+ * controller object construction 
+ * ------------------------------
+ *
+ * 1. check app's container.
+ * 2. use static method, forge, if exists.
+ * 3. use new constructor.
+ * 
+ * controller invocation
+ * ---------------------
+ * 
+ * 1. closure. 
+ * 2. stack handle (StackHandleInterface)
+ * 3. method invocation based on route.
+ * 4. method invocation as matchBy
+ * 4. method invocation by method.
+ * 
+ * controller setup
+ * ----------------
+ * 
+ * before invocation, dispatcher will setup the controller object. 
+ * - request,
+ * - request->respond,
+ * - request->redirect,
+ * 
+ */
+
+
+
 Controllerクラス
 ---------------
 
