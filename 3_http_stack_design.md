@@ -1,9 +1,7 @@
 HTTPスタックの基本設計
 ==================
 
-StackPHPには幾つか不満があります。
-
-今回の開発では、新しくHTTPスタックを設計し直します。
+Slim FrameworkあるいはStackPHPで使われている設計には幾つか不満があります。そこで、今回の開発では、新しくHTTPスタックを設計し直します。
 
 StackPHPとHttpKernelInterfaceの問題点
 -------
@@ -11,12 +9,30 @@ StackPHPとHttpKernelInterfaceの問題点
 ### HTTPスタックとミドルウェアが一体になっている
 
 StackPHPのデザインだと、
+
 *   リクエストを受け取って処理をする、
 *   次のスタックを呼び出す、
 
-という責務がひとつのオブジェクトなってしまいます。
+という責務がひとつのオブジェクトなってしまいます。具体的なコードで書くと、
 
-これだと使いにくいのと利便性が落ちてしまうのではないかと考えました。
+```php
+class Stack {
+  protected $app;
+  public function __construct($app) {
+    $this->app = $pp;
+  }
+function handle(Request $request, $type, $catch) {
+    /* 何か処理を行う */
+    // 何も無ければ、次の$appを呼び出す。
+    $response = $this->app->handle($request, $type, $catch);
+    /* レスポンスにも処理を行える */
+    return $response;
+  }
+}
+```
+この中で```handle```メソッド内で、実際の処理を行います。レスポンスを返す場合は返しますが、返さない場合は次の処理を実行する必要があります。
+
+確かに、これなら「何でもできる」コードですが、責務が多すぎて、かえって利便性が落ちてしまうのではないかと考えました。
 
 ### SymfonyのHttpKernelInterface
 
@@ -24,79 +40,96 @@ StackPHPのデザインだと、
 本来なら、Interface（何でもOK）を指定すべきだったのでは、と想像します。
 
 
-TuumStackの設計
+スタックの設計
 -------------
 
 ということで、自分で設計です。
 とはいえ、大きく変更するわけではありません。
 
 要するに、
+
 *   $requestを受け取って、
 *   $responseを返す。返せない場合はnullを返す。
 
 です。これをinterfaceとして実装します。
 
+### StackHandleInterface
+
 ```php
-interface StackCallInterface {
+interface StackHandleInterface {
   /**
    * @param Request $request
    * @return Response|null
    */
-  public function call($request);
+  public function handle($request);
 }
 ```
 
-本当は、$requestとしてinterfaceを指定したいところではあります。
+本当は、```$request```にはinterfaceを指定したいところではあります。
 が、今はPSRで共通のHTTPインターフェースの実装が進んでいます。PSRが決定したところで実装できるようにアノテーションでの指定にとどめておきたいと思います。
 
-> callはRackのマネ。何か格好良いメソッド名ないかな。
-> 例えば```__invoke```を使ってクロジャーにしようかとも思いましたが現在のPHPだとパースが今ひとつなので却下。
+> handleというメソッド名はSymfonyのHttpKernelInterfaceのマネ。何か格好良いメソッド名ないかな。
+> 
+> 例えば```__invoke```を使ってクロジャーにしようかとも思いましたが現在のPHPだと今ひとつ上手にパースしてくれないので却下。PHP7に期待したい。
+
+### StackReleaseInterface
 
 さて、もうひとつ。
-リスポンスに対する処理を実装したいですね。
+帰ってきたリスポンスに対する処理を実装したいですね。
 
 ```php
-interface StackReplyInterface extends RequestStackInterface {
+interface StackReleaseInterface {
   /**
    * @param Request  $request
    * @param Response $response
    * @return Response|null
    */
-  public function reply($request, $response);
+  public function release($request, $response);
 }
 ```
 
 こちらは、戻ってきたリスポンスに対する処理です。
 
-> メソッド名は工夫したいな。
+> メソッド名のreleaseは工夫したいな。
 > callとreplyで、意味がわかるかな。
 
 
-### ミドルウェア概要設計
+### Stackable class
 
-HTTPスタックをミドルウェアに変換するクラスです。
+これだとスタックしません。ので、各スタックがつながるようミドルウェアに変換するクラスです。
 
 ```php
-class Middleware implements StackCallInterface {
+class Stackable implements StackableInterface {
   protected $stack;
   protected $next;
   
+  /**
+   * 処理を行う$stackを渡して下さい
+   */
   public function __construct($stack) {
     $this->stack = $stack;
   }
   
-  public function call($request) {
+  /**
+   * $requestを受け取って、自分の$stackを実行してみます。
+   */
+  public function handle($request) {
+    // $responseがなければ、次の$nextを処理します。
     if( !$response = $this->stack->call($request) ) {
       if( $this->next ) {
         $response = $this->next->call($request);
       }
     }
-    if( $this->next instanceof StackCallInterface ) {
-      $response = $this->app->reply($request, $response);
+    // 最後にreleaseメソッドを実行します（あれば）。
+    if( $this->next instanceof StackReleaseInterface ) {
+      $response = $this->app->release($request, $response);
     }
     return $response;
   }
   
+  /**
+   * 処理用のスタックをStackableに変換。
+   */
   public function push($next) {
     if( $this->next ) {
       return $this->next->push($next);
@@ -115,56 +148,21 @@ class Middleware implements StackCallInterface {
 
 またResponseStackInterfaceの場合は、さらにリスポンスに対して処理を行います。
 
+### ミドルウェアの機能
 
+実際に開発を始めると、色々なアイディアが出てきました。こんな機能があると便利でしょうか。
 
-様々なミドルウェア
---------------
-
-後で考える。
-
-ミドルウェアに色々な機能をつけたくなりました。
-こういう機能があると便利でしょうか。
-
-### matcher
+* matcher
 
 簡単にリクエストのパスとの比較条件をつけることです。
 例えばパスが```/admin```で始まってたら、```auth```スタックを実行する、などです。
 
-実行するスタックは常に同じ。
+* before/after filter
 
-```php
-class Middleware {
-  public function onRoute($url) {}
-  public function onMethod($method) {}
-}
-```
+マッチできるとなると、マッチしたらフィルターを実行する機能がが欲しくなります。
 
+どうやって実装するかは、また後で検討してみます。
 
-### router
-
-次はルーター機能です。
-先のmatcherより複雑な条件を指定可能で、実行するスタックを別々に指定します。
-
-```php
-class Middleware {
-  public function on($method, $url, $stack) {}
-  public function onGet($url, $stack) {}
-  public function onPost($url, $stack) {}
-  public function onDelete($url, $stack) {}
-}
-```
-
-
-### before/after filter
-
-ルーター機能を導入すると欲しいのがbefore/afterのフィルターです。
-
-```php
-class Middleware {
-  public function before($stack);
-  public function after($stack);
-}
-```
 
 スタックとは何か
 =============
@@ -187,7 +185,6 @@ class Middleware {
 マイクロフレームワークを見ると、クロージャーも使いたい。
 なので、クロージャーもスタックとして可能ということで。
 
-
 というか、本来は、これが正しい実装な気がする。
 
 ただ、PHPだと
@@ -199,20 +196,16 @@ function runClosure() {
 }
 ```
 
-になるからなぁ。
+になるから今回は却下してみる。
 
 
 ### それなら、コントローラーとは？
 
 コントローラーもHTTPスタックとして考えたい。
-ただし、スタックとしてはクラス名で指定されているので、これを実体化してから呼び出す。
+ただし、スタックとしてはクラス名で指定しておいてので、必要なときに実体化してから呼び出す。
 
 
 ### コントローラーのメソッドは？
 
-Laravelなら```controller\class\name@methodName```としてスタック？を指定すると、メソッドを走らせてくれる。こういう機能。
-
-う〜ん。
-欲しいけど、実装が面倒になりそう。
-ルーターのみ対応は可能ではあるけれど。
+例えばLaravelなら```controller\class\name@methodName```と指定すると、メソッドを走らせてくれる。これはスタックなのか？
 
