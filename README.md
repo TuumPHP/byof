@@ -1,119 +1,159 @@
-Build Your Own Framework (BYOF) using PHP
-=========================================
+Build Your Own Framework
+====================
 
-problems and design decisions.
+Write a wish, first.
 
+Then, I develop a framework. 
 
-コンポーネントの組み合わせ
-----------------------
+Then, rewrite the wish (continue).
 
-PHPでもバージョン5.3での名前空間の導入とcomposerの登場により、独立したライブラリ（コンポーネント）を組み合わせて使うことが簡単になりました。SymfonyやLaravelなど、多くのフレームワークはコンポーネントをベースにして構築されています。今後はYii2やCakePHP3なども登場してきてますが、全てコンポーネントベースです。
+Overall Design
+----------------
 
-と同時に、自分の好きなコンポーネントを選んで、フレームワークを自作しようという話題も多く見かけるようになりました。Silexとかよい例かもしれません。StackPHPを使った非常に簡単なコードを見るだけで、自分でも作れる気になってきます。
+Ths document discusses about designs behind the web application framework development. The goal is to develop a web application framework that is capable to support for a very long term; say 5 to 10 years. 
 
-で、実際に作ったりしたのですが…
+#### Design# Depend on Components
 
-簡単な機能でよければ簡単に作れます。が、使っていて物足りない、仕事に使える気がしないわけです。そもそも単純な機能であれば、SlimやSilexと言った有名なMicro-Frameworkを使えば十分なわけです。
+Framework changes as time goes by. But (hopefuly) not so for each components. Matured components that have a good focus should not change much. 
 
-一方、機能を追加してゆくと…
+The framework should be a thin layer that glue these components. 
 
-自分で作りこんでいるわけなので、好きなだけ機能は追加できるし複雑にもできます。が、それで出来たモノが、果たして使いやすいか、長期間での運用に耐えうるかといえば、とても思えなかったわけです。
+#### Design# Loose Coupling
 
+Components should be loosely coupled. 
 
+Yet, it offers a nice magic like Laravel. Yeah, that sounds nice. 
 
-「なぜ？」が知りたい
--------------
+#### Design# Front End Framework (No infrastructures)
 
-自作で本格的なフレームワークを作り込んだという話は検索しても余り見当たりません。だいたいは簡単なサンプル、あるいは作ったよ、という話で終わっている場合が多い気がします。一方、有名なフレームワークを見れば、使い方などのマニュアルは充実してますし、コードを読めば解決した方法は分かります。
+The web technology might evolve very quickly. Whereas the backend servers (and clients business) does not change that much. If they do, the change would require rewriting the code... 
 
-とはいえ、
-*   マニュアル＝使い方、
-*   ソースコード＝実装方法、
+So, the framework will focus on front end web server. No database stuff. 
 
-しか分かりません。
+Designing a Web Application Framework
+------------------------------------------
 
-一方、自分が知りたのは何か、を考えてみると、
-*   フレームワークを設計する際に出てくる問題は何なのか？
-*   その解決方法には何があって、何を採用するかの判断基準、
+So, what is web application? There are no single definition but I have a very simple one to start. It's by Symfony's; 
 
-という部分です。
+```php
+$response = $app( $request );
+```
 
-もう少し説明すると、ほとんどの開発・設計においては次のステップを踏むと思います。
+and ```$app``` is the web application. 
+The ```$request``` represents the incoming request, and the ```$response``` contains the response back to the client. 
 
-1. 解決したい問題の提起、
-2. 設計方針の決定、
-3. 問題の解決（実装）、
-4. 使い方などマニュアルを作成。
+All I have to do is, desing what features each of ```$app```, ```$request```, and ```$response``` have, and how to construct them. 
 
+#### Design# Be Immutable
 
-フレームワークを作るとなると、大きな問題（概念設計）から細かな問題まで、雑多な点を考慮しなくてはできません。殆どの場合では完璧な解決方法はなく、考えられる関係方法のメリット・デメリットを勘案した上で、より良いと思われる解決法を選びます。選ぶ理由というのが設計方針となります。
+I heard a lot of good thing about being immutable. 
 
-一方、どんな問題を想定して、どういう方向で解決しようとしたかについては、あまりお目にかかったことがありません。
+So, let's say, ```$app``` should be immutable. 
 
-> 知っているフレームワークはごく限られてます。仕事で使ったのはLaravel4.2、コードを読み込んだのはAuraPHP、Bear.Sundayの一部、Slim Framework、StackPHPぐらいです。この中では多分、Bear.Sundayのブログに、設計の話が一番詳しく書いてあります。
+That means, all the values that varies are stored in ```$request```, ```$response```, or outside of $app as a resource. 
 
-
-単にコードを読み込んで真似る、だけではなく、解決しようとしている問題はなにか？なぜ、この実装にしたのか、を考えこまないと、一貫性のある使いやすいフレームワークにならない、と思うようになりました。
-
+> I know asking for immutable, or multi-thread-ready is too much for PHP, but I hope this restriction will result in cleaner and simpler framework design. 
 
 
+Starting from StackPHP
+-----------
 
-自作フレームワークの利点
--------------------
+#### Design# Use Middlewares
 
-ところで、なんでフレームワークを自作するのでしょう。
+[StackPHP](http://stackphp.com/) gives a good design for a web application framework. There is [another excellent article about use of middlewares](https://mwop.net/blog/2015-01-08-on-http-middleware-and-psr-7.html). Using middleware should be the way to go. 
 
-### 勉強に最適
+#### Design# Everything is a Middleware
 
-最初の動機は、これです。
-自分のプログラミング技術を伸ばしたい、と思ったからです。
+Slim and Silex also uses middleware design. But the last middleware is always the $app itself, which has routing, events, all kind of stuff. 
 
-フレームワークを作るには、様々な課題があり、本当に色々な解決法やコーディング技術が必要です。作っていて、困ったら有名なフレームワークのコードを見て真似してみると本当に理解できる気がします。
+Well, there should be an examples, such as DI container, logger, etc. 
 
-また、一度フレームワークを自作すると大体の動きがわかるので、知らないフレームワークを使う際にも動きの予想がつくというメリットがあると思います。
+#### Modify Middleware Design
 
+But there are one thing I like to complain. The middleware have too many responsibilities, such as,
 
-### 長期運用のため
+*   do whatever as a middleware, and
+*   call next middleware. 
 
-もう一つ、目標にしているのが長期間の運用、例えば10年以上にわたってコードを保守することです。
-
-フレームワークに比べて、コンポーネントのほうが長生きすると思うからです。
-
-
-### コンポーネントに依存したい
-
-したがって長期間サポートするプロジェクトでは、フレームワークではなく、コンポーネントに依存するほうが運用が楽なのではないかと考えているからです。
-
-例えば、一部の機能を更新する場合を考えます。例えばセキュリティパッチが出る、新しい機能で使いたいものが出た、という場合です。
-
-フレームワークを使っていると、全てのコンポーネントが更新されてしまうかもしれません。互換性や使い勝手などが大きく損なわれるケースというはあると思います。
-
-一方、コンポーネントであれば、必要な部分のみを更新することが可能です。そして十分に疎結合であれば、更新の影響は限られる「はず」です。
+Yes, there are 2 of them. So, I like to separate the responsibility to different objects.
 
 
-### コードの内部まで知りたい
+Request and Reponse
+------------------------
 
-時間がたつと、どんなに有名なフレームワークでも、情報がなくなってしまいます。結局、自分でソースコードを読み込んで、必要な修正を行うことになります。その場合は、自作フレームワークのほうが安心感がある、と思うからです。
+### Design# Use Symfony's Http-Foundation
 
-あくまで、よく出来たフレームワークであれば、という前提ですが。
+Unfortunately, the PSR-7 is still under development. So, for now, I will use Symfony's Http-Foundation as request and response. 
+
+But HttpKernelInterface uses class as a typehint, not an interface. This make things very difficult to design something. So, I will not adopt the HttpKernelInterface.
+
+### Design# Create Response From Request
+
+$request is the input to the web application. Some where along the middleware stack, a response must be created. 
+
+To simplify the creation of $response, I like to introduce a factory object into the $request, such as 
+
+```php
+$request->respond()->view('welcome')->with('message', 'hello');
+```
+
+Or, 
+
+```php
+$request->redirect()->to('login')->withError('failed to login');
+```
+
+The redirection often requires $request information, such as baseURL, to redirect with relative to its url location. Creating a response directly from $request seems to be a nice trick to handle the $request data to $response object. 
+
+### Design# Request maybe Immutable
+
+It can be, I guess. 
+
+But current Symfony's Request class has attribute property which can contain various data. In the future, I would like to make the $request immutable, and store all the variables into $response object (inside the $request object, though). 
 
 
-よく出来たフレームワークとは
------------------------
+Configuring the Application
+------------------------------
 
-自作しても、出来が悪かったらサポートが大変になるのは目に見えてます。
+### Design# Directory Structure
 
-「よく出来た」というのは何か？を考えてみます。
+```
+project-root
+  |- app/
+  |- docs/
+  |- public/
+  |- src/
+  |- var/
+  |- view/
+  +- vendor/
+```
 
-「一貫性があること」。
+nothing special.
 
-一貫性があれば、いつでもコードを追いかければ、内容を理解して修正しやすいフレームワークになると考えます。この場合はこっち、あの場合はそっち、だと疲れますよね。
+*   app: for storing configuration, scripts, etc.
+*   docs: static files.
+*   public: where .htaccess sits for serving.
+*   src: class file for the project.
+*   var: logs, caches, etc.
+*   view: template files.
+*   vendor: composer's territory. 
 
-「合理的であること」
+The directories such as docs, view, and var, should be configurable during the boot up process. 
 
-ちゃんと、設計方針を説明できて理解しやすいこと。これがあれば、後からでもコードを追いかけやすいです。
+### Design# Union File Manager
 
-「なぜ？を説明してあること」
+To construct $app based on the environment, such as production, local, staging, etc. use the "union file manager" thing. A lot of framework uses it but I cannot find the name of the technique. Nothing special here, as well. 
 
-使い方はコードを見れば分かります。いや、やっぱりマニュアルがある方がめちゃくちゃ便利ですが。が、なぜ、どうして、こうなったのか？の説明があると、いざというときに修正しやすいと思います。
+### Design# No DI Container Component
+
+The Union File Manager controls the construction process, i.e. it is the DI container. No external DI container, such as Pimple, are used. In other words, I will create my own simple container. 
+
+Once the DI process has a standard, or de-fact standard arises, I would like to use it, though. 
+
+### Design# Factory Method: Forge
+
+Use static ```forge``` method as standard factory method for various classes. Ideally, the factory method will not need any arguments. 
+
+
+
 
