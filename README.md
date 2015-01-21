@@ -1,11 +1,9 @@
 Build Your Own Framework
 ====================
 
-Write a wish, first.
-
-Then, I develop a framework. 
-
-Then, rewrite the wish (continue).
+1. Write a wish, first.
+2. develop a framework. 
+3. Then, rewrite the wish, and continue...
 
 Overall Design
 ----------------
@@ -81,7 +79,7 @@ to-be-written.
 
 
 Request and Reponse
-------------------------
+-------------------
 
 #### [X] Design# Use Symfony's Http-Foundation
 
@@ -108,19 +106,27 @@ Extend Symfony's ```Response``` class.
 
 $request is the input to the web application. Some where along the middleware stack, a response must be created. 
 
-To simplify the creation of $response, I like to introduce a factory object into the $request, such as 
+To simplify the creation of $response, I like to introduce a factory object into the $request as follows.
+
+A View response. 
 
 ```php
 $request->respond()->view('welcome')->with('message', 'hello');
 ```
 
-Or, 
+or, Redirect response. 
 
 ```php
 $request->redirect()->to('login')->withError('failed to login');
 ```
 
-The redirection often requires $request information, such as baseURL, to redirect with relative to its url location. Creating a response directly from $request seems to be a nice trick to handle the $request data to $response object. 
+also, Error response. 
+
+```php
+$request->error()->notFound()->withError('You cannot do that');
+```
+
+The redirection often requires ```$request``` information, such as baseURL, to redirect with relative to its url location. Creating a response directly from $request seems to be a nice trick to handle the $request data to $response object. 
 
 
 
@@ -171,9 +177,9 @@ Use static ```forge``` method as standard factory method for various classes. Id
 
 
 Router and Controller
--------------------------
+---------------------
 
-### Routers
+### Router
 
 PHP already have tons of routers to choose from. So, I like to introduce a very simple interface for the adaptors to these routers. 
 
@@ -191,62 +197,112 @@ interface ReverseRouteInterface {
 
 *   ```RouterInterface::match```: matches the route against $request.
 *   ```RouterInterface::getRouting ```: returns the object to set routes. The returned object varies from router to router. 
-*   ```RouterInterface::getReverseRoute ```: returns a reverse route by name RouteNamesInterface object.
+*   ```RouterInterface::getReverseRoute ```: returns a RouteNamesInterface object to produce a url by a route name.
 *   ```ReverseRouteInterface::generate```: generate a route for a given ```$name``` with parameter, ```$args```.
 
+#### [_] Design# Separate Dispatcher 
 
-### Dispatching and Controller
+To accomodate other strategies for dispatching a controller, separate the dispatching from the main stack. 
 
-The followings are the dispatchables. 
 
-*   StackHandleInterface (i.e. closure with $request as an argument).
+### Default Dispatching Strategy
+
+The default behavior of the dispatcher is, the controller is also another ```StackHandleInterface``` object.
+
+So, specify one of the followings as the dispatchable controller. 
+
+*   An object implementing ```StackHandleInterface``` (i.e. closure with $request as an argument).
 *   A controller class name which implements the StackHandleInterface. 
-*   controller and a method name to invoke.  
 
-To represent these, the router must return the following. 
+To represent these, the router must return only, 
 
 *   controller: a class name, or a StackHandleInterface closure. 
-*   method: a method name if present. 
+*   parameters: an array of values from the router. 
 
-### Dispatching Inside Controller 
+additinaly,
 
-A controller implementing StackHandleInterface may have only one public interface, ```__invoke($request)```. Inside the handle, it is possible, or useful, to dispatch to its own method. 
+*   before filter,
+*   after filter, 
 
-#### Design# [_] Dispatch based on method
+#### [_] Design# Dispatching Inside Controller 
+
+Inside the controller, it can dispatch other methods based on the request. This is a nice feature because controller is the best person who knows how to handle the request, a resource, restful, or whatever. 
+
+####[_] Design# Use Trait for Controllers
+
+Some ideas for dispatching inside controllers. 
 
 A simple dispatcher is to use method name. The arguments maybe fulfilled based on the analyzed route and $_REQUEST parameters. Example: 
 
 ```php
 class MyController {
-  use MethodDispatcherTrait;
+  use ControllerByMethodTrait;
   protected on{$Method}($id,...) {}
 }
 ```
-
-#### Design# [_] Dispatch based on local routing information
 
 A simple reg-ex routing is used to dispatch a method. 
 
 ```php
 class MyController {
-  use RouteDispatcherTrait;
-  protected getRoutes() {
-    return [
-      'createForm' => 'get:/create',
+  use ControllerByRouteTrait;
+  protected $routes = [
+      'createForm'   => 'get:/create',
       'getSomething' => 'get:/(id:[0-9]+)',
-      'postData' => 'post:/create',
-    ];
-  }
+      'postData'     => 'post:/create',
+  ];
   protected getSomething($id) {}
 }
 ```
 
+How about a resource type dispatcher?
+
+```php
+class MyController {
+  use ControllerResourceTrait;
+  protected onGet($id) {}
+}
+```
+
+
 #### [_] find a simple and fast router for the route based dispatcher.. 
 
+I am looking for a router implementation that is small, simple, clean, but very fast for a small set of routes. 
+
+
+Stacks
+------
+
+Lots of ideas and code from [no framework tutorial](https://github.com/PatrickLouys/no-framework-tutorial) in GitHub. 
+
+### Error Stack
+
+Takes care of the errors. 
+
+ErrorHandle is at the very beginning of the stack. 
+Set up [filp/whoops](https://github.com/filp/whoops) in debug mode. Set an error-viewer (to be desgined) if not. 
+
+ErrorRelease sits at the end of the stack, converting an error response into an error page. to be designed. 
+
+
+### Session Stack
+
+Get/set data to session. 
+
+SessionHandle takes flash data into the ```$response```, using $request's setAttribute method. This way, the flashed data will always passed to response. If the response was another redirect, it defaults to pass the flash data to the next request. 
+
+SessionRelease retrieves data from Redirect responses into session's flash. If the response is a View response, it retrieves the C.S.R.F. token value and set it to the session. 
+
+
+### View Stack
+
+For View response, converts the template file using template engine. 
 
 
 View and Template
----------------------
+-----------------
+
+Default template is PHP; It is a lot easier to debug PHP file. And there are already many PHP based template components, such as [League's Plates](http://platesphp.com/) and [Aura.View](https://github.com/auraphp/Aura.View). 
 
 I like to introduce a super simple interface for these 
 
@@ -255,3 +311,10 @@ interface ViewEngineInterface {
     public function render($file, $data = []);
 }
 ```
+
+#### [_] Design# View Must Be Immutable
+
+The view template often uses URL generator, which uses $request. The view template must be designed to be immutable. 
+
+The rendering must happen in an object. 
+
