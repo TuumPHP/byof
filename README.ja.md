@@ -143,6 +143,41 @@ class AdminAuthFilter implements FilterInterface
 これは$requestが不変オブジェクトのため、に新たにアトリビュートを入れた$requestをチェーンに返すために用いる。
 
 
+リクエストとレスポンスの設計
+----------------------------
+
+#### [X] Psr-7の活用
+
+今のところPsr-7は確定してませんが、ほぼ最終形ということなので、Psr-7を元にリクエストとレスポンスを設計します。特徴は、両方共普遍オブジェクトとして設計されている点にあります。
+
+一方、アプリケーション$appも普遍として構築するので、リクエストごとに異なる値や処理中に変更・追加される値はリクエストまたはレスポンスで保持する必要があります。
+
+
+#### [X] リクエストからレスポンスを生成
+
+レスポンスを作成する際に、リクエストの中のアトリビュートを使って構築する場合が多々あると考えられます。例えば、認証情報をレスポンスで使う、現状のURLにリダイレクトする、などです。
+
+したがって、レスポンスはリクエストから生成することにします。
+
+```php
+$response = $request->respond(['auth'])->asView('view/file');
+```
+
+ここで、respondはレスポンスファクトリを返します。
+
+### レスポンスの種類
+
+*   asHtml(string $html):
+*   asView(string $view_file):
+*   asText(string $text):
+*   asJson(array $data):
+*   asRedirect(UriInterface $uri):
+*   asPath(string $path):
+*   asError(int $status):
+*   asNotFound():
+*   asForbidden():
+
+
 
 XXXXXXX
 ========
