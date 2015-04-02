@@ -61,24 +61,12 @@ Psr-7が出てきましたので、これを使います。Psr−7では、こ�
 
 ミドルウェアとは、単純な機能を持つミドルウェアを次々と実行することで、複雑な機能を実現すること。実装としてはChain of Responsibilityパターンを用います。
 
-### ミドルウェアAPI
+### アプリケーションAPI
 
-基本的なCoRを用いるため、入力```$request```に対して、出力```$response```が決定した時点でチェーンを終了します。
-
-```php
-$response = $middleware($request);
-```
-
-インターフェースとしては
+基本的なCoRを用いるため、入力```$request```に対して、出力```$response```を返すこととします。またレスポンスが帰ってきた時点でチェーンを終了します。
 
 ```php
-interface MiddlewareInterface {
-    /**
-     * @param Request $request
-     * @return null|Response
-     */
-    public function __invoke($request);
-}
+$response = $app($request);
 ```
 
 振る舞いとしては、```$request```を受け取り、対応した場合は```$response```を返す。あるいは次のミドルウェアを実行する。なお、次のミドルウェアが無ければnullを返す。
@@ -99,9 +87,10 @@ interface MiddlewareInterface {
 > と決定的な理由は考えられなかったです。単に慣れてただけという話も。また、メソッドを使ってもいいのですが、メソッド名を考えなくていいクロージャーとして設計を進めます。
 
 
-### チェーン追加用API
 
-ミドルウェアが自身でレスポンスを返さない場合は、次のミドルウェアを呼び出す必要があります。その次のミドルウェアを設定するAPIとしては、メソッドを用いた簡単な方法を使う。
+### ミドルウェアAPI
+
+ミドルウェアが自身でレスポンスを返さない場合は、次のミドルウェアを呼び出す必要があります。その次のミドルウェアを設定するAPIとしては、メソッドを用いた簡単な方法を使います。
 
 ```php
 // チェーンの最後にミドルウェアを追加する。
@@ -110,9 +99,11 @@ $middleware->push($nextMiddleware);
 $middleware->prepend($nextMiddleware);
 ```
 
-### フィルター
+以上、3つのメソッドを持つインターフェースとなります。
 
-次のミドルウェアを呼びだす機能を持たない、ミドルウェアのようなオブジェクトを利用することを可能にしたい。具体的には、CSRFトークンチェックや認証ルーチンを考えていて、例えば次のように利用する。
+#### 別アプリケーションの場合
+
+ミドルウェアだけれど、次のミドルウェアを呼びだす機能を持たないオブジェクトを利用することを可能にします。例えば、CSRFトークンチェックや認証ルーチンなどの場合、次のように簡単に利用できるようにします。
 
 ```php
 $middleware = new Middleware(new AdminAuthFilter());
@@ -120,28 +111,17 @@ $middleware->when('/admin*');
 $app->push($middleware);
 ```
 
+メリットとしては、```AdminAuthFilter```を実行する条件を持たないので、オブジェクトの使い回しが簡単に出来ると考えます。
+
 > 実行する条件を細かく設定したい場合、ミドルウェア自身に条件を持つより、別ミドルウェアから呼び出されたほうが簡潔になると考えたため。また、$appが不変と考えると、条件によって適用するミドルウェアはチェーンから外すほうが良いかなと考えたため。
  
-ただし、FilterのAPIは、ミドルウェアのAPIとは少し異なる。
+ただし、別アプリケーション内でリクエストを修正したい場合に問題となります。これは$requestが不変オブジェクトのためで、例えば新たにアトリビュート追加した場合、$requestをチェーンに返す必要があります。
+
+このため、APIに```$next```という変数を追加します。この変数の利用方法としては、レスポンスは返さないが、次の処理で使われる（かもしれない）情報を```$request```に追加するために用います。
 
 ```php
-interface FilterInterface {
-    /**
-     * @param Request $request
-     * @param null|callable $next
-     * @return null|Response
-     */
-    public function __invoke($request, $next=null);
-}
-```
-
-パラメータの```$next```の利用方法としては、レスポンスは返さないが、次の処理で使われる（かもしれない）情報を```$request```に追加するために用いる。
-
-```php
-class AdminAuthFilter implements FilterInterface 
-{
-    public function __invoke($request, $next) 
-    {
+class AdminAuthFilter implements FilterInterface {
+    public function __invoke($request, $next=null) {
         if($auth = $this->authOK($request)) {
             $request = $request->withAttribute('auth', $auth);
             return $next ? $next($request) : null;
@@ -150,7 +130,42 @@ class AdminAuthFilter implements FilterInterface
 }
 ```
 
-これは$requestが不変オブジェクトのため、に新たにアトリビュートを入れた$requestをチェーンに返すために用いる。
+### ApplicationInterface and MiddlewareInterface
+
+以上から、次の2つのインターフェースを定義しました。
+
+```php
+interface ApplicationInterface
+{
+    /**
+     * @param Request          $request
+     * @param callable|null    $next
+     * @return null|Response
+     */
+    public function __invoke($request, $next=null);
+}
+
+interface MiddlewareInterface extends ApplicationInterface
+{
+    /**
+     * stack up the SplStack.
+     * converts normal HttpKernel into Stackable.
+     *
+     * @param ApplicationInterface $handler
+     * @return $this
+     */
+    public function push($handler);
+
+    /**
+     * prepends a new middleware/application at the
+     * beginning of the stack. returns the prepended stack.
+     *
+     * @param ApplicationInterface $handler
+     * @return MiddlewareInterface
+     */
+    public function prepend($handler);
+}
+```
 
 
 リクエストとレスポンスの設計
@@ -193,6 +208,14 @@ $response = $request->respond(['auth'])->asView('view/file');
 
 > 簡単なフィルターなどでも、レスポンスを帰す場合があることを考えると、簡単にレスポンスを生成できるのは便利かと思ってます。
 
+#### その他のサービス
+
+リクエストが管理すべきと思われるサービスを列挙。普通はアプリ側で持つと思うが、考えてみればアクセス毎に異なる状態を持つとかんがえられる。
+
+*   ロガー：アクセス毎に異なるログを出力するため。
+*   セッション：アクセス毎に異なる。
+
+
 ### Response設計
 
 レスポンスには大きく3つの種類を検討します。
@@ -203,19 +226,19 @@ $response = $request->respond(['auth'])->asView('view/file');
 
 ##### [X] 簡単なレスポンスファクトリを用意する
 
-正常レスポンス。
+正常レスポンス。ファイルのダウンロードなどの便利メソッドが欲しいかな。
 
 *   asHtml(string $html):
 *   asView(string $view_file):
 *   asText(string $text):
 *   asJson(array $data):
 
-リダイレクト系。もう少し種類は欲しい。（to〜で始めるのはどうか？）
+リダイレクト系。もう少し種類は欲しい。
 
-*   asRedirect(UriInterface $uri):
-*   asPath(string $path):
-*   asBasePath(array $parameter=[]); （未対応）
-*   asNamedRoute(string $name, array $parameter=[]); （未対応）
+*   toAbsoluteUri(UriInterface $uri):
+*   toPath(string $path):
+*   toBasePath(array $parameter=[]);
+*   toNamedRoute(string $name, array $parameter=[]); （未対応）
 
 エラー系。これも種類が足りない。
 
@@ -253,8 +276,43 @@ CoRの復路において、ミドルウェアがレスポンスの種類に応�
 
 > レンダリングをレスポンスあるいはコントローラーで行うことを考えたのですが、エラー処理やフィルターからのレスポンスを考えるとミドルウェアで行うのが一番広くカバー出来ると考えたため。
 
-アプリケーション構築
-----------------------
+ウェブアプリケーションの基本構成
+---------------------------
+
+標準として用意する基本ミドルウェアについて。
+
+### 基本ミドルウェア
+
+#### error-stack
+
+*   往路：whoopsも構築＆設定する。が、これは本来はミドルウェア内で行う処理ではない（ので、移動する予定）。
+*   復路：レスポンスがErrorタイプの場合、エラーレスポンスを描画する。レスポンスが無い（null）の場合はnotFoundを描画する。描画はErrorViewオブジェクトを使うことで、エラーステータスに応じたテンプレートを描画する。
+
+#### session-stack
+
+*   往路：セッションの設定（configureで行うべきかも。）フラッシュの内容をリクエストのアトリビュートに複製する。
+*   復路：レスポンスがRedirectタイプの場合、レスポンスのデータをセッションのフラッシュに保存する。
+
+#### csRf-stack
+
+*   往路：CsRfトークンを設定する。ルートがマッチする場合は、CsRfトークンを確認する。（トークンの設定処理はconfigureで行うべきかも。）
+*   復路：特になし。
+
+#### view-stack
+
+*   往路：特になし。
+*   復路：レスポンスがViewタイプの場合、描画する。レスポンスがstringならテキストとして、配列ならJSONとして描画する。
+
+#### url-mapper-handler
+
+*   往路：URLから直接マップするファイルを特定して、存在したら描画する。必要なければスタックに入れないこと。
+*   復路：特に無し。
+
+##### [_] SessionとCsRfスタックを統一する？
+
+
+ディレクトリ構造
+------------------
 
 ### ディレクトリ構成
 
@@ -301,7 +359,7 @@ RouterとController
 
 ### コントローラー設計
 
-コントローラーもミドルウェアとして扱う。つまり```MiddlewareInterface```を実装する。ただ純粋なミドルウェアとしてしまうと、使い勝手が悪いのでtraitを使って便利な機能を提供する。
+コントローラーもミドルウェアの一部として実行する。ただし次のミドルウェアを持たないアプリケーションとして扱われるため、```ApplicationInterface```を実装する。ただし、純粋なミドルウェアとしてしまうと、使い勝手が悪いのでtraitを使って便利な機能を提供する。
 
 > なお、アプリケーションのチェーンの一部とはしない（不変にするため）。
 
@@ -318,13 +376,15 @@ class BasicController implements MiddlewareInterface {
 }
 ```
 
+#### Dispatchコントローラー
+
 よく使われそうなオブジェクトをオブジェクトのプロパティとして設定している。
 
 ```php
 class BasicController extends AbstractController {
     public function dispatch() {
         $input = $this->request->getQuery();
-        return $this->respond->asPath($this->basePath.'/'.$input['id']);
+        return $this->respond->toBasePath('/'.$input['id']);
     }
 }
 ```
@@ -366,7 +426,7 @@ class RoutingController implements MiddlewareInterface {
 }
 ```
 
-Route情報は、ウェブのURLルートから指定する方法と、Routesでマッチする部分を指定する方法がある。
+Route情報は、URIの絶対パスを使って指定する方法と、Routesでマッチする部分を指定する方法がある。
 
 URLルートでマッチングする場合では、ルートとコントローラーを次のようにマッチさせる。
 
@@ -395,7 +455,7 @@ class RoutingController implements MiddlewareInterface {
 }
 ```
 
-対応は、[ソースを参照](https://github.com/TuumPHP/Web/blob/master/src/Controller/ResourceControllerTrait.php)して下さい。
+単にデフォルトの```getRoutesメソッド```を持った```RouteDispatchTrait```です。対応は、[ソースを参照](https://github.com/TuumPHP/Web/blob/master/src/Controller/ResourceControllerTrait.php)して下さい。
 
 
 ViewとTemplate
@@ -403,7 +463,9 @@ ViewとTemplate
 
 ### View用ミドルウェア
 
-> Viewテンプレートの展開（render）もミドルウェアで行う。Filterなどからエラーレスポンスを返す場合などを考えた場合、コントローラーやレスポンスなどから独立させてレンダリング出来る方が便利と考えたため。
+レスポンス内にはテンプレート描画用のデータを持つだけとしておいて、View用ミドルウェアがビューの描画を実行する。
+
+> Filterなどからエラーレスポンスを返す場合などを考えた場合、コントローラーやレスポンスなどから独立させてレンダリング出来る方が便利と考えたため。
 
 ##### [X] Viewも不変
 
@@ -415,4 +477,11 @@ ViewとTemplate
 
 でもtwigとかも使ってみたい。
 
+### 標準ヘルパー
+
+respondに対応した標準のヘルパーを用意する。
+
+*   withMessage, withAlert, withError: ```$message```
+*   withInput: ```$inputs```
+*   withInputErrors: ```$errors```
 
