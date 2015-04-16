@@ -1,7 +1,7 @@
 Build Your Own Framework (BYOF) using PHP
 =========================================
 
-TuumPHPの設計覚書。
+Tuumの設計覚書。
 
 ウェブアプリケーションとは何か？
 --------
